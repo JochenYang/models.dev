@@ -1,0 +1,44 @@
+name: Sync api.json from upstream
+
+on:
+  schedule:
+    # 每天 03:17 UTC（避开整点峰值），本地时间约 11:17
+    - cron: '17 3 * * *'
+  workflow_dispatch: # 手动触发，便于首次验证
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch upstream api.json
+        run: |
+          curl -fsSL https://models.dev/api.json -o api.json.upstream \
+            || { echo "::error::failed to download upstream api.json"; exit 1; }
+
+      - name: Compare and stage update
+        run: |
+          if cmp -s api.json api.json.upstream; then
+            echo "upstream unchanged, nothing to do"
+            rm -f api.json.upstream
+            echo "changed=false" >> "$GITHUB_ENV"
+          else
+            echo "upstream changed: $(stat -c%s api.json) -> $(stat -c%s api.json.upstream) bytes"
+            mv api.json.upstream api.json
+            echo "changed=true" >> "$GITHUB_ENV"
+          fi
+
+      - name: Commit and push update
+        if: env.changed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add api.json
+          git commit -m "chore(sync): update api.json from upstream" \
+            -m "source: https://models.dev/api.json"
+          git push
